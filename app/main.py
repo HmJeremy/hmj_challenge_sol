@@ -2,7 +2,7 @@
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
-from . import backup, models, schemas
+from . import analytics, backup, models, schemas
 from .database import Base, engine, get_db
 from .logger import log_invalid
 from .validation import validate_hired_employee
@@ -103,3 +103,18 @@ def restore_backup(table: str, db: Session = Depends(get_db)):
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"table": table, "restored_records": count}
+
+
+# --------------------------------------------------------------------------
+# Analitica
+# --------------------------------------------------------------------------
+
+
+@app.get("/analytics/hires-by-quarter")
+def get_hires_by_quarter(db: Session = Depends(get_db)):
+    return analytics.hires_by_quarter(db)
+
+
+@app.get("/analytics/departments-above-average")
+def get_departments_above_average(db: Session = Depends(get_db)):
+    return analytics.departments_above_average(db)
