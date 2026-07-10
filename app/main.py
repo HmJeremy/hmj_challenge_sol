@@ -1,8 +1,8 @@
-"""App de FastAPI: endpoints de ingesta batch para departments, jobs y hired_employees."""
-from fastapi import Depends, FastAPI
+"""App de FastAPI: endpoints de ingesta, backup/restore y analitica."""
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
-from . import models, schemas
+from . import backup, models, schemas
 from .database import Base, engine, get_db
 from .logger import log_invalid
 from .validation import validate_hired_employee
@@ -78,3 +78,28 @@ def ingest_hired_employees(batch: schemas.HiredEmployeeBatch, db: Session = Depe
         inserted += 1
     db.commit()
     return {"inserted": inserted, "rejected": len(errors), "errors": errors}
+
+
+# --------------------------------------------------------------------------
+# Backup / Restore
+# --------------------------------------------------------------------------
+
+
+@app.post("/backup/{table}")
+def create_backup(table: str, db: Session = Depends(get_db)):
+    try:
+        path = backup.backup_table(table, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"table": table, "backup_file": path}
+
+
+@app.post("/restore/{table}")
+def restore_backup(table: str, db: Session = Depends(get_db)):
+    try:
+        count = backup.restore_table(table, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"table": table, "restored_records": count}
