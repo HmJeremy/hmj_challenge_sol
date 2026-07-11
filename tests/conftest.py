@@ -1,32 +1,58 @@
 import os
-import tempfile
 
 import pytest
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+load_dotenv()
+
+
+def _mssql_url() -> str:
+    driver = os.environ.get("DB_ODBC_DRIVER", "ODBC Driver 17 for SQL Server").replace(" ", "+")
+    encrypt = "yes" if os.environ.get("DB_ENCRYPT", "false").lower() == "true" else "no"
+    trust_cert = "yes" if os.environ.get("DB_TRUST_SERVER_CERTIFICATE", "false").lower() == "true" else "no"
+    return (
+        f"mssql+pyodbc://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}"
+        f"@{os.environ['DB_SERVER']},{os.environ.get('DB_PORT', '1433')}/{os.environ['DB_DATABASE']}"
+        f"?driver={driver}&Encrypt={encrypt}&TrustServerCertificate={trust_cert}"
+    )
+
+
+test_engine = create_engine(_mssql_url())
+TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+
+def _clear_tables(session, models) -> None:
+    # orden por FK: hired_employees primero, despues departments/jobs
+    session.query(models.HiredEmployee).delete()
+    session.query(models.Department).delete()
+    session.query(models.Job).delete()
+    session.commit()
+
 
 @pytest.fixture()
-def db_session(monkeypatch, tmp_path):
-    """DB SQLite aislada por test (tipo in-memory), conectada a app.database."""
-    db_file = tmp_path / "test.db"
-    test_engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
-    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+def db_session(monkeypatch):
+    """Sesion contra el SQL Server real de test (test_hmj).
 
-    from app import database
+    Las tablas se limpian antes y despues de cada test para que las
+    corridas sean repetibles y no choquen por id duplicado.
+    """
+    from app import database, models
 
     monkeypatch.setattr(database, "engine", test_engine)
     monkeypatch.setattr(database, "SessionLocal", TestSessionLocal)
 
-    from app import models
-
     models.Base.metadata.create_all(bind=test_engine)
 
     session = TestSessionLocal()
+    _clear_tables(session, models)
     try:
         yield session
     finally:
+        session.rollback()
+        _clear_tables(session, models)
         session.close()
 
 
