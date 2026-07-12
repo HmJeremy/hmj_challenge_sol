@@ -53,7 +53,7 @@ La salida se ve asi:
 
 ```
 departments loaded: 12
-jobs loaded: 181
+jobs loaded: 183
 hired_employees: 1929 valid / 70 invalid (see logs/invalid_records.log)
 ```
 
@@ -135,6 +135,12 @@ pytest -v
 
 Cubre las reglas de validacion directamente y el comportamiento end-to-end
 de la API: ingesta/rechazo/limite de batch/backup-restore/analitica.
+
+Por defecto corren contra un SQLite aislado por test (no requiere nada
+mas instalado ni configurado). Si existe un `.env` con `DB_SERVER` seteado
+(ver `tests/conftest.py`), corren en cambio contra ese SQL Server real -
+util para revisar a mano lo que quedo insertado, pero no es necesario
+para correr la suite.
 
 ## Docker
 
