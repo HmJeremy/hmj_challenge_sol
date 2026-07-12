@@ -20,8 +20,8 @@ def _mssql_url() -> str:
     )
 
 
-test_engine = create_engine(_mssql_url())
-TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+def _use_mssql() -> bool:
+    return bool(os.environ.get("DB_SERVER"))
 
 
 def _clear_tables(session, models) -> None:
@@ -33,26 +33,40 @@ def _clear_tables(session, models) -> None:
 
 
 @pytest.fixture()
-def db_session(monkeypatch):
-    """Sesion contra el SQL Server real de test (test_hmj).
+def db_session(monkeypatch, tmp_path):
+    """DB de test.
 
-    Las tablas se limpian antes y despues de cada test para que las
-    corridas sean repetibles y no choquen por id duplicado.
+    Por defecto usa un SQLite aislado por test (no requiere nada instalado
+    ni configurado, asi corre en cualquier maquina). Si hay un .env con las
+    credenciales de un SQL Server (DB_SERVER en el entorno), usa ese en su
+    lugar y limpia las tablas antes/despues de cada test para que las
+    corridas sean repetibles.
     """
     from app import database, models
 
-    monkeypatch.setattr(database, "engine", test_engine)
-    monkeypatch.setattr(database, "SessionLocal", TestSessionLocal)
+    if _use_mssql():
+        engine = create_engine(_mssql_url())
+    else:
+        db_file = tmp_path / "test.db"
+        engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    models.Base.metadata.create_all(bind=test_engine)
+    monkeypatch.setattr(database, "engine", engine)
+    monkeypatch.setattr(database, "SessionLocal", SessionLocal)
 
-    session = TestSessionLocal()
-    _clear_tables(session, models)
+    models.Base.metadata.create_all(bind=engine)
+
+    session = SessionLocal()
+    if _use_mssql():
+        _clear_tables(session, models)
     try:
         yield session
     finally:
         session.rollback()
-        _clear_tables(session, models)
+        # KEEP_TEST_DATA=1 salta solo la limpieza de salida, para poder
+        # inspeccionar en SQL Server lo que dejo el ultimo test corrido.
+        if _use_mssql() and not os.environ.get("KEEP_TEST_DATA"):
+            _clear_tables(session, models)
         session.close()
 
 
